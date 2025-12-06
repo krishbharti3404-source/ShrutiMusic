@@ -1,95 +1,109 @@
-# ig.py
-"""
-Heroku Safe Instagram + Pinterest Downloader
-"""
-
-import os
+import re
 import requests
-from bs4 import BeautifulSoup
+from pyrogram import filters
+from pyrogram.types import Message
+
+from ShrutiMusic import app
+
+# Regex to match Instagram URLs
+INSTA_URL_REGEX = re.compile(r"^(https?://)?(www\.)?(instagram\.com|instagr\.am)/.*$")
 
 
-# ---------------- INSTAGRAM -------------------
-def download_instagram(url):
+async def _process_reel(message: Message, url: str):
+    """Process the Instagram reel URL and send video."""
+    
+    if not re.match(INSTA_URL_REGEX, url):
+        return await message.reply_text(
+            "Tʜᴇ URL ɪs ɴᴏᴛ ᴀ ᴠᴀʟɪᴅ Iɴsᴛᴀɢʀᴀᴍ ʟɪɴᴋ."
+        )
+    
+    a = await message.reply_text("ᴘʀᴏᴄᴇssɪɴɢ...")
+
+    api_url = f"https://insta-dl.hazex.workers.dev/?url={url}"
+
     try:
-        print("➡ Fetching Instagram data…")
+        response = requests.get(api_url)
+        response.raise_for_status()
+        result = response.json()
 
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+        if result.get("error"):
+            raise Exception(result.get("message", "API Error"))
 
-        r = requests.get(url, headers=headers)
-        html = r.text
-
-        soup = BeautifulSoup(html, "html.parser")
-        meta = soup.find("meta", property="og:video") or soup.find("meta", property="og:image")
-
-        if not meta:
-            print("⚠ Error: Media not found")
-            return False
-
-        media_url = meta.get("content")
-
-        if not os.path.exists("downloads"):
-            os.makedirs("downloads")
-
-        ext = "mp4" if ".mp4" in media_url else "jpg"
-        filename = f"downloads/ig_media.{ext}"
-
-        print("➡ Downloading…")
-        data = requests.get(media_url).content
-        with open(filename, "wb") as f:
-            f.write(data)
-
-        print(f"✔ Done! saved to {filename}")
-        return True
+        data = result.get("result")
+        if not data:
+            raise Exception("No downloadable data found.")
 
     except Exception as e:
-        print("Instagram Error:", e)
-        return False
+        try:
+            await a.edit(f"Eʀʀᴏʀ : {e}")
+        except:
+            await message.reply_text(f"Eʀʀᴏʀ : {e}")
+        return
 
+    # Extract data
+    video_url = data.get("url")
+    if not video_url:
+        try:
+            return await a.edit("Nᴏ ᴠɪᴅᴇᴏ URL ғᴏᴜɴᴅ.")
+        except:
+            return await message.reply_text("Nᴏ ᴠɪᴅᴇᴏ URL ғᴏᴜɴᴅ.")
 
-# ---------------- PINTEREST -------------------
-def download_pinterest(url):
+    duration = data.get("duration", "N/A")
+    quality = data.get("quality", "N/A")
+    type_ext = data.get("extension", "N/A")
+    size = data.get("formattedSize", "N/A")
+
+    caption = (
+        f"Dᴜʀᴀᴛɪᴏɴ : {duration}\n"
+        f"Qᴜᴀʟɪᴛʏ : {quality}\n"
+        f"Tʏᴘᴇ : {type_ext}\n"
+        f"Sɪᴢᴇ : {size}"
+    )
+
     try:
-        print("➡ Fetching Pinterest data…")
-
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        video = soup.find("video")
-        img = soup.find("img")
-
-        if not os.path.exists("downloads"):
-            os.makedirs("downloads")
-
-        if video and video.get("src"):
-            media = video.get("src")
-            ext = "mp4"
-        else:
-            media = img.get("src")
-            ext = "jpg"
-
-        filename = f"downloads/pin_media.{ext}"
-
-        print("➡ Downloading…")
-        data = requests.get(media).content
-        with open(filename, "wb") as f:
-            f.write(data)
-
-        print(f"✔ Done! Saved to {filename}")
-        return True
-
+        await message.reply_video(video_url, caption=caption)
+        await a.delete()
     except Exception as e:
-        print("Pinterest Error:", e)
-        return False
+        await a.edit(f"Eʀʀᴏʀ ᴡʜɪʟᴇ sᴇɴᴅɪɴɢ ᴠɪᴅᴇᴏ: {e}")
 
 
-# ------------ ROUTER ------------------------
-def start_download(link):
-    if "instagram.com" in link:
-        return download_instagram(link)
-    elif "pinterest." in link:
-        return download_pinterest(link)
-    else:
-        print("⚠ Unsupported URL")
-        return False
+@app.on_message(filters.command(["ig", "instagram", "reel"]))
+async def download_instagram_command(client, message: Message):
+    """Handles reel downloads via commands."""
+    
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL."
+        )
+
+    url = message.text.split(None, 1)[1].strip()
+    await _process_reel(message, url)
+
+
+@app.on_message(
+    filters.text
+    & (filters.private | filters.group)
+    & ~filters.via_bot
+)
+async def download_instagram_no_command(client, message: Message):
+    """Handles reels when user sends only link."""
+    
+    if not message.text or message.text.startswith(('/', '!', '?', '.')):
+        return
+
+    url = message.text.strip()
+    if re.match(INSTA_URL_REGEX, url):
+        await _process_reel(message, url)
+
+
+# Help Menu
+MODULE = "Rᴇᴇʟ"
+HELP = """
+ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
+
+• /ig [URL]
+• /instagram [URL]
+• /reel [URL]
+
+Yᴏᴜ ᴄᴀɴ ᴀʟsᴏ ᴅᴏᴡɴʟᴏᴀᴅ ʀᴇᴇʟs ʙʏ sᴇɴᴅɪɴɢ ᴏɴʟʏ ᴛʜᴇ ʟɪɴᴋ.
+"""
