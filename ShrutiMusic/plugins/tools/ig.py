@@ -4,7 +4,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 
 # Assuming SANYAMUSIC is your Pyrogram Client object
-from SANYAMUSIC import app
+from ShrutiMusic import app
 
 # --- Configuration (Move these to config.py if you have one) ---
 try:
