@@ -1,109 +1,158 @@
 import re
-import requests
+import httpx
 from pyrogram import filters
 from pyrogram.types import Message
 
-from ShrutiMusic import app
+# Assuming SANYAMUSIC is your Pyrogram Client object
+from SANYAMUSIC import app
 
-# Regex to match Instagram URLs
-INSTA_URL_REGEX = re.compile(r"^(https?://)?(www\.)?(instagram\.com|instagr\.am)/.*$")
-
-
-async def _process_reel(message: Message, url: str):
-    """Process the Instagram reel URL and send video."""
+# --- Configuration (Move these to config.py if you have one) ---
+try:
+    from config import LOGGER_ID
+except ImportError:
+    LOGGER_ID = None
     
+# From both files
+DOWNLOADING_STICKER_ID = (
+    "CAACAgEAAx0CfD7LAgACO7xmZzb83lrLUVhxtmUaanKe0_ionAAC-gADUSkNORIJSVEUKRrhHgQ"
+)
+# Primary API for rich metadata (from instadl.py)
+API_URL = "https://insta-dl.hazex.workers.dev" 
+# Fallback API (from instadl2.py)
+FALLBACK_API_URL = "https://karma-api2.vercel.app/instadl"
+
+# Regex to match Instagram URLs (from instadl.py)
+INSTA_URL_REGEX = re.compile(
+    r"^(https?://)?(www\.)?(instagram\.com|instagr\.am)/"
+)
+
+
+async def _process_content(message: Message, url: str):
+    """
+    Helper function to process the Instagram URL and send the content (photo/video).
+    (This function remains the same, as it contains the core download logic)
+    """
+    # 1. URL Validation
     if not re.match(INSTA_URL_REGEX, url):
         return await message.reply_text(
-            "Tʜᴇ URL ɪs ɴᴏᴛ ᴀ ᴠᴀʟɪᴅ Iɴsᴛᴀɢʀᴀᴍ ʟɪɴᴋ."
+            "Tʜᴇ ᴘʀᴏᴠɪᴅᴇᴅ URL ɪs ɴᴏᴛ ᴀ ᴠᴀʟɪᴅ Iɴsᴛᴀɢʀᴀᴍ URL😅😅"
         )
+
+    # 2. Status Update
+    processing_msg = await message.reply_sticker(DOWNLOADING_STICKER_ID)
+    await processing_msg.edit_text("ᴘʀᴏᴄᴇssɪɴɢ...")
+
+    # Choose the primary API for rich metadata
+    primary_api_url = f"{API_URL}/?url={url}"
     
-    a = await message.reply_text("ᴘʀᴏᴄᴇssɪɴɢ...")
-
-    api_url = f"https://insta-dl.hazex.workers.dev/?url={url}"
-
     try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        result = response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(primary_api_url, timeout=30)
+            response.raise_for_status()
+            result = response.json()
 
+        # Check for API-level errors
         if result.get("error"):
-            raise Exception(result.get("message", "API Error"))
+            # If the primary API fails, try the fallback (simple) API
+            raise Exception(result.get("message", "Primary API failed, trying fallback..."))
 
         data = result.get("result")
         if not data:
-            raise Exception("No downloadable data found.")
+            raise Exception("No result data found in API response.")
 
     except Exception as e:
+        # Fallback Logic (using the API from instadl2.py)
         try:
-            await a.edit(f"Eʀʀᴏʀ : {e}")
-        except:
-            await message.reply_text(f"Eʀʀᴏʀ : {e}")
-        return
+            async with httpx.AsyncClient() as client:
+                response = await client.get(FALLBACK_API_URL, params={"url": url}, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+            
+            # Simple content URL extraction (from instadl2.py)
+            if "content_url" in data:
+                content_url = data["content_url"]
+                caption = "Dᴏᴡɴʟᴏᴀᴅᴇᴅ ᴠɪᴀ Fᴀʟʟʙᴀᴄᴋ API."
+                
+                # Determine content type (from instadl2.py)
+                if "video" in content_url:
+                    await message.reply_video(content_url, caption=caption)
+                else:
+                    await message.reply_photo(content_url, caption=caption)
+                
+                await processing_msg.delete()
+                return
+            else:
+                raise Exception("Fallback API failed to provide a content URL.")
 
-    # Extract data
-    video_url = data.get("url")
-    if not video_url:
+        except Exception as fallback_e:
+            # If both APIs fail
+            error_message = f"Eʀʀᴏʀ :\n{fallback_e}"
+            try:
+                await processing_msg.edit_text(error_message)
+            except Exception:
+                await message.reply_text(error_message)
+            if LOGGER_ID:
+                await app.send_message(LOGGER_ID, f"INSTADL FAILED for {url}:\n{fallback_e}")
+            return
+
+
+    # --- Primary API Success Processing ---
+    if data.get("url"):
+        content_url = data["url"]
+        duration = data.get("duration", "N/A")
+        quality = data.get("quality", "N/A")
+        type_ext = data.get("extension", "N/A")
+        size = data.get("formattedSize", "N/A")
+        
+        # Determine if it's a photo or video based on the extension/type
+        is_video = True if type_ext.lower() in ["mp4", "webm", "mov"] else False
+
+        caption = f"Dᴜʀᴀᴛɪᴏɴ : {duration}\nQᴜᴀʟɪᴛʏ : {quality}\nTʏᴘᴇ : {type_ext}\nSɪᴢᴇ : {size}"
+
         try:
-            return await a.edit("Nᴏ ᴠɪᴅᴇᴏ URL ғᴏᴜɴᴅ.")
-        except:
-            return await message.reply_text("Nᴏ ᴠɪᴅᴇᴏ URL ғᴏᴜɴᴅ.")
+            if is_video:
+                await message.reply_video(content_url, caption=caption)
+            else:
+                await message.reply_photo(content_url, caption=caption)
+            
+            await processing_msg.delete()
+        except Exception as e:
+            error_message = f"Eʀʀᴏʀ ᴡʜɪʟᴇ sᴇɴᴅɪɴɢ ᴄᴏɴᴛᴇɴᴛ:\n{e}"
+            await processing_msg.edit_text(error_message)
+            if LOGGER_ID:
+                await app.send_message(LOGGER_ID, error_message)
+    else:
+        # Handle case where primary API call was successful but URL wasn't found
+        try:
+            return await processing_msg.edit_text(
+                "Fᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ. Nᴏ ᴄᴏɴᴛᴇɴᴛ URL Fᴏᴜɴᴅ."
+            )
+        except Exception:
+            return await message.reply_text(
+                "Fᴀɪʟᴇᴅ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ. Nᴏ ᴄᴏɴᴛᴇɴᴛ URL Fᴏᴜɴᴅ."
+            )
 
-    duration = data.get("duration", "N/A")
-    quality = data.get("quality", "N/A")
-    type_ext = data.get("extension", "N/A")
-    size = data.get("formattedSize", "N/A")
 
-    caption = (
-        f"Dᴜʀᴀᴛɪᴏɴ : {duration}\n"
-        f"Qᴜᴀʟɪᴛʏ : {quality}\n"
-        f"Tʏᴘᴇ : {type_ext}\n"
-        f"Sɪᴢᴇ : {size}"
-    )
-
-    try:
-        await message.reply_video(video_url, caption=caption)
-        await a.delete()
-    except Exception as e:
-        await a.edit(f"Eʀʀᴏʀ ᴡʜɪʟᴇ sᴇɴᴅɪɴɢ ᴠɪᴅᴇᴏ: {e}")
-
-
-@app.on_message(filters.command(["ig", "instagram", "reel"]))
+@app.on_message(filters.command(["ig", "insta", "instagram", "reel"]))
 async def download_instagram_command(client, message: Message):
-    """Handles reel downloads via commands."""
-    
+    """
+    Handles Instagram downloads exclusively via command.
+    """
     if len(message.command) < 2:
-        return await message.reply_text(
-            "Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ URL."
+        await message.reply_text(
+            "Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ."
         )
-
-    url = message.text.split(None, 1)[1].strip()
-    await _process_reel(message, url)
-
-
-@app.on_message(
-    filters.text
-    & (filters.private | filters.group)
-    & ~filters.via_bot
-)
-async def download_instagram_no_command(client, message: Message):
-    """Handles reels when user sends only link."""
-    
-    if not message.text or message.text.startswith(('/', '!', '?', '.')):
         return
 
-    url = message.text.strip()
-    if re.match(INSTA_URL_REGEX, url):
-        await _process_reel(message, url)
+    # Extract the URL from the message
+    url = message.text.split(None, 1)[1].strip()
+    
+    if not url:
+        await message.reply_text(
+            "Pʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ Iɴsᴛᴀɢʀᴀᴍ URL ᴀғᴛᴇʀ ᴛʜᴇ ᴄᴏᴍᴍᴀɴᴅ."
+        )
+        return
 
+    await _process_content(message, url)
 
-# Help Menu
-MODULE = "Rᴇᴇʟ"
-HELP = """
-ɪɴsᴛᴀɢʀᴀᴍ ʀᴇᴇʟ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ:
-
-• /ig [URL]
-• /instagram [URL]
-• /reel [URL]
-
-Yᴏᴜ ᴄᴀɴ ᴀʟsᴏ ᴅᴏᴡɴʟᴏᴀᴅ ʀᴇᴇʟs ʙʏ sᴇɴᴅɪɴɢ ᴏɴʟʏ ᴛʜᴇ ʟɪɴᴋ.
-"""
+# *** The 'download_instagram_no_command' function has been removed. ***
