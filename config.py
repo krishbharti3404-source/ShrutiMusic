@@ -118,12 +118,12 @@ PLAYLIST_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
 STATS_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
 TELEGRAM_AUDIO_URL = "https://files.catbox.moe/ta84vv.jpg"
 TELEGRAM_VIDEO_URL = "https://files.catbox.moe/ta84vv.jpg"
-STREAM_IMG_URL = "https://files.catbox.moe/eehxb4.jpg"
-SOUNCLOUD_IMG_URL = "https://files.catbox.moe/eehxb4.jpg"
-YOUTUBE_IMG_URL = "https://files.catbox.moe/eehxb4.jpg"
-SPOTIFY_ARTIST_IMG_URL = "https://files.catbox.moe/eehxb4.jpg"
-SPOTIFY_ALBUM_IMG_URL = "https://files.catbox.moe/eehxb4.jpg"
-SPOTIFY_PLAYLIST_IMG_URL = "https://files.catbox.moe/eehxb4.jpg"
+STREAM_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
+SOUNCLOUD_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
+YOUTUBE_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
+SPOTIFY_ARTIST_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
+SPOTIFY_ALBUM_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
+SPOTIFY_PLAYLIST_IMG_URL = "https://files.catbox.moe/ta84vv.jpg"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔐 User & Bot State Stores
